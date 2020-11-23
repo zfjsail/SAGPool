@@ -1,5 +1,6 @@
 from os.path import join
 import numpy as np
+import sklearn
 from sklearn import preprocessing
 from scipy.sparse import coo_matrix
 import torch
@@ -15,8 +16,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')  # inc
 
 
 class DiagDataset(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None):
+    def __init__(self, root, transform=None, pre_transform=None, seed=42):
         self.file_dir = root
+        self.seed = seed
         super(DiagDataset, self).__init__(root, transform, pre_transform)
         self.data, self.slices = torch.load(self.processed_paths[0])
         print("shape", self.data.x.shape)
@@ -70,6 +72,8 @@ class DiagDataset(InMemoryDataset):
             y = torch.LongTensor([labels[i]])
             data = Data(x=x, edge_index=edge_index, y=y)
             data_list.append(data)
+
+        data_list = sklearn.utils.shuffle(data_list, random_state=self.seed)
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])

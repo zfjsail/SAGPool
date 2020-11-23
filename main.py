@@ -7,10 +7,19 @@ from torch_geometric import utils
 from networks import Net
 import torch.nn.functional as F
 import argparse
+import numpy as np
 import os
 from torch.utils.data import random_split
+from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import precision_recall_curve
 
 from utils import settings
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s') # include timestamp
+
 
 parser = argparse.ArgumentParser()
 
@@ -50,10 +59,13 @@ args.num_classes = 2
 args.num_features = dataset.num_features
 print("num features", args.num_features)
 
-num_training = int(len(dataset) * 0.8)
-num_val = int(len(dataset) * 0.1)
+num_training = int(len(dataset) * 0.5)
+num_val = int(len(dataset) * 0.75) - num_training
 num_test = len(dataset) - (num_training + num_val)
-training_set, validation_set, test_set = random_split(dataset, [num_training, num_val, num_test])
+# training_set, validation_set, test_set = random_split(dataset, [num_training, num_val, num_test])
+training_set = dataset[:num_training]
+validation_set = dataset[num_training:(num_training+num_val)]
+test_set = dataset[(num_training+num_val):]
 
 train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
 val_loader = DataLoader(validation_set, batch_size=args.batch_size, shuffle=False)
@@ -62,21 +74,59 @@ model = Net(args).to(args.device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
 
-def test(model, loader):
+def test(model, loader, thr=None, return_best_thr=False):
     model.eval()
     correct = 0.
-    loss = 0.
+    total = 0.
+    loss, prec, rec, f1 = 0., 0., 0., 0.
+    y_true, y_pred, y_score = [], [], []
+
     for data in loader:
         data = data.to(args.device)
+        bs = data.y.size(0)
         out = model(data)
         pred = out.max(dim=1)[1]
         correct += pred.eq(data.y).sum().item()
         loss += F.nll_loss(out, data.y, reduction='sum').item()
-    return correct / len(loader.dataset), loss / len(loader.dataset)
+
+        y_true += data.y.data.tolist()
+        y_pred += out.max(1)[1].data.tolist()
+        y_score += out[:, 1].data.tolist()
+        total += bs
+
+    if thr is not None:
+        logger.info("using threshold %.4f", thr)
+        y_score = np.array(y_score)
+        y_pred = np.zeros_like(y_score)
+        y_pred[y_score > thr] = 1
+
+    prec, rec, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="binary")
+    auc = roc_auc_score(y_true, y_score)
+    logger.info("loss: %.4f AUC: %.4f Prec: %.4f Rec: %.4f F1: %.4f",
+            loss / total, auc, prec, rec, f1)
+
+    if return_best_thr:
+        precs, recs, thrs = precision_recall_curve(y_true, y_score)
+        f1s = 2 * precs * recs / (precs + recs)
+        f1s = f1s[:-1]
+        thrs = thrs[~np.isnan(f1s)]
+        f1s = f1s[~np.isnan(f1s)]
+        best_thr = thrs[np.argmax(f1s)]
+        logger.info("best threshold=%4f, f1=%.4f", best_thr, np.max(f1s))
+        return [prec, rec, f1, auc], loss / len(loader.dataset), best_thr
+    else:
+        return [prec, rec, f1, auc], loss / len(loader.dataset), None
 
 
 min_loss = 1e10
 patience = 0
+best_thr = None
+
+# test
+val_metrics, val_loss, thr = test(model, val_loader, return_best_thr=True)
+print("Validation loss:{}\teval metrics:".format(val_loss), val_metrics)
+test_acc, test_loss, _ = test(model, test_loader, thr=0.5)
+print("Test performance:", test_acc)
 
 for epoch in range(args.epochs):
     model.train()
@@ -84,16 +134,18 @@ for epoch in range(args.epochs):
         data = data.to(args.device)
         out = model(data)
         loss = F.nll_loss(out, data.y)
-        print("Training loss:{}".format(loss.item()))
+        if i % 10 == 0:
+            print("Training loss:{}".format(loss.item()))
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-    val_acc, val_loss = test(model, val_loader)
-    print("Validation loss:{}\taccuracy:{}".format(val_loss, val_acc))
+    val_metrics, val_loss, thr = test(model, val_loader, return_best_thr=True)
+    print("Validation loss:{}\teval metrics:".format(val_loss), val_metrics)
     if val_loss < min_loss:
         torch.save(model.state_dict(), 'latest.pth')
         print("Model saved at epoch{}".format(epoch))
         min_loss = val_loss
+        best_thr = thr
         patience = 0
     else:
         patience += 1
@@ -102,5 +154,5 @@ for epoch in range(args.epochs):
 
 model = Net(args).to(args.device)
 model.load_state_dict(torch.load('latest.pth'))
-test_acc, test_loss = test(model, test_loader)
-print("Test accuarcy:{}".fotmat(test_acc))
+test_acc, test_loss, _ = test(model, test_loader, thr=best_thr)
+print("Test performance:", test_acc)
