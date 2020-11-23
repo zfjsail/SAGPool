@@ -1,12 +1,17 @@
+from os.path import join
 import torch
 from torch_geometric.datasets import TUDataset
+from dataset import DiagDataset
 from torch_geometric.data import DataLoader
 from torch_geometric import utils
-from networks import  Net
+from networks import Net
 import torch.nn.functional as F
 import argparse
 import os
 from torch.utils.data import random_split
+
+from utils import settings
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--seed', type=int, default=777,
@@ -23,7 +28,7 @@ parser.add_argument('--pooling_ratio', type=float, default=0.5,
                     help='pooling ratio')
 parser.add_argument('--dropout_ratio', type=float, default=0.5,
                     help='dropout ratio')
-parser.add_argument('--dataset', type=str, default='DD',
+parser.add_argument('--dataset', type=str, default='twitter',
                     help='DD/PROTEINS/NCI1/NCI109/Mutagenicity')
 parser.add_argument('--epochs', type=int, default=100000,
                     help='maximum number of epochs')
@@ -38,25 +43,26 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     args.device = 'cuda:0'
-dataset = TUDataset(os.path.join('data',args.dataset),name=args.dataset)
-args.num_classes = dataset.num_classes
+# dataset = TUDataset(os.path.join('data', args.dataset), name=args.dataset)
+dataset = DiagDataset(root=join(settings.DATA_DIR, "twitter"))
+
+args.num_classes = 2
 args.num_features = dataset.num_features
+print("num features", args.num_features)
 
-num_training = int(len(dataset)*0.8)
-num_val = int(len(dataset)*0.1)
-num_test = len(dataset) - (num_training+num_val)
-training_set,validation_set,test_set = random_split(dataset,[num_training,num_val,num_test])
-
-
+num_training = int(len(dataset) * 0.8)
+num_val = int(len(dataset) * 0.1)
+num_test = len(dataset) - (num_training + num_val)
+training_set, validation_set, test_set = random_split(dataset, [num_training, num_val, num_test])
 
 train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
-val_loader = DataLoader(validation_set,batch_size=args.batch_size,shuffle=False)
-test_loader = DataLoader(test_set,batch_size=1,shuffle=False)
+val_loader = DataLoader(validation_set, batch_size=args.batch_size, shuffle=False)
+test_loader = DataLoader(test_set, batch_size=1, shuffle=False)
 model = Net(args).to(args.device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
 
-def test(model,loader):
+def test(model, loader):
     model.eval()
     correct = 0.
     loss = 0.
@@ -65,8 +71,8 @@ def test(model,loader):
         out = model(data)
         pred = out.max(dim=1)[1]
         correct += pred.eq(data.y).sum().item()
-        loss += F.nll_loss(out,data.y,reduction='sum').item()
-    return correct / len(loader.dataset),loss / len(loader.dataset)
+        loss += F.nll_loss(out, data.y, reduction='sum').item()
+    return correct / len(loader.dataset), loss / len(loader.dataset)
 
 
 min_loss = 1e10
@@ -82,19 +88,19 @@ for epoch in range(args.epochs):
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-    val_acc,val_loss = test(model,val_loader)
-    print("Validation loss:{}\taccuracy:{}".format(val_loss,val_acc))
+    val_acc, val_loss = test(model, val_loader)
+    print("Validation loss:{}\taccuracy:{}".format(val_loss, val_acc))
     if val_loss < min_loss:
-        torch.save(model.state_dict(),'latest.pth')
+        torch.save(model.state_dict(), 'latest.pth')
         print("Model saved at epoch{}".format(epoch))
         min_loss = val_loss
         patience = 0
     else:
         patience += 1
     if patience > args.patience:
-        break 
+        break
 
 model = Net(args).to(args.device)
 model.load_state_dict(torch.load('latest.pth'))
-test_acc,test_loss = test(model,test_loader)
+test_acc, test_loss = test(model, test_loader)
 print("Test accuarcy:{}".fotmat(test_acc))
