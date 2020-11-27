@@ -4,9 +4,11 @@ from torch_geometric.datasets import TUDataset
 from dataset import DiagDataset
 from torch_geometric.data import DataLoader
 from torch_geometric import utils
+import shutil
 from networks import Net
 import torch.nn.functional as F
 import argparse
+from tensorboard_logger import tensorboard_logger
 import numpy as np
 import os
 from torch.utils.data import random_split
@@ -23,9 +25,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s') # incl
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--seed', type=int, default=777,
+parser.add_argument('--seed', type=int, default=42,
                     help='seed')
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch_size', type=int, default=2048,
                     help='batch size')
 parser.add_argument('--lr', type=float, default=0.0005,
                     help='learning rate')
@@ -53,7 +55,13 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     args.device = 'cuda:0'
 # dataset = TUDataset(os.path.join('data', args.dataset), name=args.dataset)
-dataset = DiagDataset(root=join(settings.DATA_DIR, "twitter"))
+dataset = DiagDataset(root=join(settings.DATA_DIR, args.dataset))
+
+tensorboard_log_dir = 'tensorboard/%s_%s' % ("sagpool", args.dataset)
+os.makedirs(tensorboard_log_dir, exist_ok=True)
+shutil.rmtree(tensorboard_log_dir)
+tensorboard_logger.configure(tensorboard_log_dir)
+logger.info('tensorboard logging to %s', tensorboard_log_dir)
 
 args.num_classes = 2
 args.num_features = dataset.num_features
@@ -74,7 +82,7 @@ model = Net(args).to(args.device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
 
-def test(model, loader, thr=None, return_best_thr=False):
+def test(model, epoch, loader, thr=None, return_best_thr=False):
     model.eval()
     correct = 0.
     total = 0.
@@ -106,6 +114,14 @@ def test(model, loader, thr=None, return_best_thr=False):
             loss / total, auc, prec, rec, f1)
 
     if return_best_thr:
+        log_desc = "valid_"
+    else:
+        log_desc = "test_"
+    tensorboard_logger.log_value(log_desc + 'loss', loss / total, epoch + 1)
+    tensorboard_logger.log_value(log_desc + 'auc', auc, epoch + 1)
+    tensorboard_logger.log_value(log_desc + 'f1', f1, epoch + 1)
+
+    if return_best_thr:
         precs, recs, thrs = precision_recall_curve(y_true, y_score)
         f1s = 2 * precs * recs / (precs + recs)
         f1s = f1s[:-1]
@@ -123,13 +139,14 @@ patience = 0
 best_thr = None
 
 # test
-val_metrics, val_loss, thr = test(model, val_loader, return_best_thr=True)
+val_metrics, val_loss, thr = test(model, -1, val_loader, return_best_thr=True)
 print("Validation loss:{}\teval metrics:".format(val_loss), val_metrics)
-test_acc, test_loss, _ = test(model, test_loader, thr=0.5)
+test_acc, test_loss, _ = test(model, -1, test_loader, thr=thr)
 print("Test performance:", test_acc)
 
 for epoch in range(args.epochs):
     model.train()
+    losses_train = []
     for i, data in enumerate(train_loader):
         data = data.to(args.device)
         out = model(data)
@@ -137,16 +154,22 @@ for epoch in range(args.epochs):
         if i % 10 == 0:
             print("Training loss:{}".format(loss.item()))
         loss.backward()
+        losses_train.append(loss.item())
         optimizer.step()
         optimizer.zero_grad()
-    val_metrics, val_loss, thr = test(model, val_loader, return_best_thr=True)
+    tensorboard_logger.log_value('train_loss', np.mean(losses_train), epoch + 1)
+
+    val_metrics, val_loss, thr = test(model, epoch, val_loader, return_best_thr=True)
     print("Validation loss:{}\teval metrics:".format(val_loss), val_metrics)
+    test_acc, test_loss, _ = test(model, epoch, test_loader, thr=best_thr)
+    print("Test performance:", test_acc)
     if val_loss < min_loss:
         torch.save(model.state_dict(), 'latest.pth')
-        print("Model saved at epoch{}".format(epoch))
+        print("Model saved at epoch {}".format(epoch))
         min_loss = val_loss
         best_thr = thr
         patience = 0
+        logger.info("**************BEST UNTIL NOW*****************")
     else:
         patience += 1
     if patience > args.patience:
@@ -154,5 +177,5 @@ for epoch in range(args.epochs):
 
 model = Net(args).to(args.device)
 model.load_state_dict(torch.load('latest.pth'))
-test_acc, test_loss, _ = test(model, test_loader, thr=best_thr)
+test_acc, test_loss, _ = test(model, args.epoch+1, test_loader, thr=best_thr)
 print("Test performance:", test_acc)
