@@ -78,10 +78,10 @@ class DiagDataset(InMemoryDataset):
         logger.info("global vertex features loaded!")
 
         embedding_path = join(file_dir, "prone.emb2")
-        max_vertex_idx = np.max(self.vertices)
+        max_vertex_idx = np.max(vertices)
         embedding = load_w2v_feature(embedding_path, max_vertex_idx)
         # self.embedding = torch.FloatTensor(embedding)
-        logger.info("%d-dim embedding loaded!", embedding[0].shape[1])
+        logger.info("%d-dim embedding loaded!", embedding[0].shape[0])
 
         n_graphs = len(graphs)
 
