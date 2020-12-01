@@ -29,7 +29,7 @@ parser.add_argument('--seed', type=int, default=42,
                     help='seed')
 parser.add_argument('--batch_size', type=int, default=2048,
                     help='batch size')
-parser.add_argument('--lr', type=float, default=0.0005,
+parser.add_argument('--lr', type=float, default=0.0003,
                     help='learning rate')
 parser.add_argument('--weight_decay', type=float, default=0.0001,
                     help='weight decay')
@@ -41,9 +41,9 @@ parser.add_argument('--dropout_ratio', type=float, default=0.5,
                     help='dropout ratio')
 parser.add_argument('--dataset', type=str, default='twitter',
                     help='DD/PROTEINS/NCI1/NCI109/Mutagenicity')
-parser.add_argument('--epochs', type=int, default=100000,
+parser.add_argument('--epochs', type=int, default=150,
                     help='maximum number of epochs')
-parser.add_argument('--patience', type=int, default=50,
+parser.add_argument('--patience', type=int, default=10,
                     help='patience for earlystopping')
 parser.add_argument('--pooling_layer_type', type=str, default='GCNConv',
                     help='DD/PROTEINS/NCI1/NCI109/Mutagenicity')
