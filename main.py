@@ -143,6 +143,7 @@ val_metrics, val_loss, thr = test(model, -1, val_loader, return_best_thr=True)
 print("Validation loss:{}\teval metrics:".format(val_loss), val_metrics)
 test_acc, test_loss, _ = test(model, -1, test_loader, thr=thr)
 print("Test performance:", test_acc)
+last_epoch = -1
 
 for epoch in range(args.epochs):
     model.train()
@@ -172,10 +173,11 @@ for epoch in range(args.epochs):
         logger.info("**************BEST UNTIL NOW*****************")
     else:
         patience += 1
+    last_epoch += 1
     if patience > args.patience:
         break
 
 model = Net(args).to(args.device)
 model.load_state_dict(torch.load('latest.pth'))
-test_acc, test_loss, _ = test(model, args.epoch+1, test_loader, thr=best_thr)
+test_acc, test_loss, _ = test(model, last_epoch+2, test_loader, thr=best_thr)
 print("Test performance:", test_acc)
