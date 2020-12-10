@@ -39,7 +39,9 @@ parser.add_argument('--pooling_ratio', type=float, default=0.5,
                     help='pooling ratio')
 parser.add_argument('--dropout_ratio', type=float, default=0.5,
                     help='dropout ratio')
-parser.add_argument('--dataset', type=str, default='twitter',
+parser.add_argument('--dataset', type=str, default='wechat',
+                    help='DD/PROTEINS/NCI1/NCI109/Mutagenicity')
+parser.add_argument('--label-type', type=str, default='click',
                     help='DD/PROTEINS/NCI1/NCI109/Mutagenicity')
 parser.add_argument('--epochs', type=int, default=150,
                     help='maximum number of epochs')
@@ -55,9 +57,9 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     args.device = 'cuda:0'
 # dataset = TUDataset(os.path.join('data', args.dataset), name=args.dataset)
-dataset = DiagDataset(root=join(settings.DATA_DIR, args.dataset))
+dataset = DiagDataset(root=join(settings.DATA_DIR, args.dataset), label_type=args.label_type)
 
-tensorboard_log_dir = 'tensorboard/%s_%s' % ("sagpool", args.dataset)
+tensorboard_log_dir = 'tensorboard/%s_%s_%s' % ("sagpool", args.dataset, args.label_type)
 os.makedirs(tensorboard_log_dir, exist_ok=True)
 shutil.rmtree(tensorboard_log_dir)
 tensorboard_logger.configure(tensorboard_log_dir)
@@ -67,9 +69,15 @@ args.num_classes = 2
 args.num_features = dataset.num_features
 print("num features", args.num_features)
 
-num_training = int(len(dataset) * 0.5)
-num_val = int(len(dataset) * 0.75) - num_training
-num_test = len(dataset) - (num_training + num_val)
+if args.dataset == "wechat":
+    num_training = dataset.get_samples_num("train")
+    num_val = dataset.get_samples_num("valid")
+    num_test = dataset.get_samples_num("test")
+else:
+    num_training = int(len(dataset) * 0.5)
+    num_val = int(len(dataset) * 0.75) - num_training
+    num_test = len(dataset) - (num_training + num_val)
+logger.info("num train %d, num valid %d, num test %d", num_training, num_val, num_test)
 # training_set, validation_set, test_set = random_split(dataset, [num_training, num_val, num_test])
 training_set = dataset[:num_training]
 validation_set = dataset[num_training:(num_training+num_val)]
