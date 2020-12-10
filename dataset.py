@@ -56,6 +56,8 @@ class DiagDataset(InMemoryDataset):
         pass
 
     def get_samples_num(self, role):
+        if settings.TEST_SIZE < np.iinfo(np.int64).max:
+            return int(settings.TEST_SIZE/3)
         file_dir = self.file_dir
         labels = np.load(join(file_dir, "{}_{}_labels.npy".format(role, self.label_type)))
         return len(labels)
@@ -172,7 +174,7 @@ class DiagDataset(InMemoryDataset):
             labels_test = np.load(join(file_dir, "test_{}_labels.npy".format(self.label_type)))
             logger.info("labels test loaded!")
 
-            labels = np.vstack((labels_train, labels_valid, labels_test))
+            labels = np.concatenate((labels_train, labels_valid, labels_test))
             logger.info("labels loaded")
 
             vertices_train = np.load(join(file_dir, "train_vertex_ids.npy"))
@@ -194,8 +196,8 @@ class DiagDataset(InMemoryDataset):
                 cur_emb = embedding[cur_vids]
                 adj_coo = coo_matrix(np.asmatrix(adj))
                 edge_index = torch.tensor([adj_coo.row, adj_coo.col], dtype=torch.long)
-                inf_features = inf_features[i]
-                x = np.concatenate((cur_node_features, inf_features, cur_emb), axis=1)  # todo global network embedding features
+                cur_inf_features = inf_features[i]
+                x = np.concatenate((cur_node_features, cur_inf_features, cur_emb), axis=1)  # todo global network embedding features
                 x = torch.FloatTensor(x)
                 y = torch.LongTensor([labels[i]])
                 data = Data(x=x, edge_index=edge_index, y=y)
